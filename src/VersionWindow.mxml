@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Window xmlns:mx="http://www.adobe.com/2006/mxml" layout="absolute" width="250" height="175" resizable="false" maximizable="false" minimizable="false" showStatusBar="false" alwaysInFront="true">
+<mx:VBox width="100%" height="100%" verticalAlign="middle" horizontalAlign="center">
+  <mx:Spacer height="10%"/>
+  <mx:TextArea id="message" width="100%" height="50%" textAlign="center" editable="false" focusEnabled="false"/>
+  <mx:Spacer/>
+  <mx:Button label="OK" click="this.close()" id="okButton"/>
+</mx:VBox>
+</mx:Window>

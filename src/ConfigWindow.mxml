@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:Window xmlns:mx="http://www.adobe.com/2006/mxml" layout="absolute" width="450" height="300" showStatusBar="false" title="設定" creationComplete="initCW(this)">
+<mx:Script source="actionscripts/configWindow.as"/>
+<mx:RegExpValidator id="rssUrlValidator" source="{rssUrl}" property="text" required="true" expression="{FMR.FM_RSS_URL_EXP}" noMatchError="URLを確認してください。" invalid="okButton.enabled = false" valid="okButton.enabled = true"/>
+<mx:VBox height="100%" width="100%" verticalAlign="middle" horizontalAlign="center">
+  <mx:TabNavigator width="96%" height="250">
+    <mx:Canvas label="更新" width="100%" height="100%">
+      <mx:Form width="100%">
+        <mx:FormItem label="更新通知RSS">
+          <mx:TextInput id="rssUrl" width="250"/>
+          <mx:Label text="http://www.freshmeeting.com/personalrss.php?r=～"/>
+        </mx:FormItem>
+        <mx:FormItem label="更新間隔 [秒]">
+          <mx:NumericStepper id="updateInterval" minimum="30" maximum="300" stepSize="10"/>
+          <mx:Label text="30～300"/>
+        </mx:FormItem>
+        <mx:FormItem label="通知表示時間 [秒]">
+          <mx:NumericStepper id="displayTime" minimum="1" maximum="60" stepSize="1"/>
+          <mx:Label text="1～60"/>
+        </mx:FormItem>
+        <mx:Spacer/>
+        <mx:FormItem>
+          <mx:CheckBox id="autoStart" label="ログイン時に起動する"/>
+        </mx:FormItem>
+      </mx:Form>
+    </mx:Canvas>
+    <mx:Canvas label="初期化" width="100%" height="100%">
+      <mx:VBox width="100%" height="100%" verticalAlign="middle" horizontalAlign="center">
+        <mx:Label text="※すべてのデータを消去します。" color="0xff0000"/>
+        <mx:HBox>
+          <mx:CheckBox id="doInitializeData" label="OK" selected="false" click="initializeData.enabled = doInitializeData.selected"/>
+          <mx:Button id="initializeData" label="データを初期化" enabled="false" click="clearData(this)"/>
+        </mx:HBox>
+      </mx:VBox>
+    </mx:Canvas>
+  </mx:TabNavigator>
+  <mx:HBox width="98%" verticalAlign="bottom" horizontalAlign="right">
+    <mx:Button label="OK" click="saveConfigs(this); this.close()" id="okButton"/>
+    <mx:Button label="キャンセル" click="this.close()" id="cancelButton"/>
+  </mx:HBox>
+</mx:VBox>
+</mx:Window>

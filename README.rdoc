@@ -1,0 +1,15 @@
+= fmradar
+
+Fresh Meeting Radar （フレッシュミーティングレーダー）
+http://saikyoline.jp/air/fmradar/
+
+== 必須ライブラリ
+
+* as3corelib (http://code.google.com/p/as3corelib/)
+  ActionScript 3.0 library for several basic utilities.
+* as3syndicationlib (http://code.google.com/p/as3syndicationlib/)
+  ActionScript 3.0 library for handling syndication feeds.
+
+== ライセンス
+
+Copyright (c) 2009 MIKAMI Yoshiyuki. See LICENSE for details.

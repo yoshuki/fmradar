@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mx:WindowedApplication xmlns:mx="http://www.adobe.com/2006/mxml" visible="false" applicationComplete="onAC()">
+<mx:Script><![CDATA[
+include 'actionscripts/handlerFunctions.as'
+
+[Embed(source='images/fmr16.png')]
+private var IconImage16:Class
+[Embed(source='images/fmr128.png')]
+private var IconImage128:Class
+
+import air.net.URLMonitor
+import air.update.ApplicationUpdaterUI
+import air.update.events.UpdateEvent
+
+import mx.events.FlexEvent
+
+import com.adobe.xml.syndication.generic.FeedFactory
+import com.adobe.xml.syndication.generic.IFeed
+import com.adobe.xml.syndication.rss.Item20
+import com.adobe.xml.syndication.rss.RSS20
+
+import classes.DisplayManager
+import classes.FMR
+
+private function onAC():void {
+  var appXML:XML = NativeApplication.nativeApplication.applicationDescriptor
+  var ns:Namespace = appXML.namespace()
+  FMR.appName = appXML.ns::name
+  FMR.appVersion = appXML.ns::version
+
+  /*
+   * システムトレイ・ドックアイコンを登録
+   */
+  if (NativeApplication.supportsSystemTrayIcon || NativeApplication.supportsDockIcon) {
+    var menu:NativeMenu = new NativeMenu()
+    FMR.iconMenu = menu
+
+    var icon:InteractiveIcon
+    if (NativeApplication.supportsSystemTrayIcon) {
+      var stIcon:SystemTrayIcon = SystemTrayIcon(NativeApplication.nativeApplication.icon)
+      icon = stIcon
+      stIcon.menu = menu
+      stIcon.tooltip = FMR.appName
+    } else if (NativeApplication.supportsDockIcon) {
+      var dIcon:DockIcon = DockIcon(NativeApplication.nativeApplication.icon)
+      icon = dIcon
+      dIcon.menu = menu
+    }
+
+    var iconImage16:Bitmap  = Bitmap(new IconImage16())
+    var iconImage128:Bitmap = Bitmap(new IconImage128())
+    icon.bitmaps = [iconImage16, iconImage128]
+
+    // アイコンメニューを作成
+    var updatedRoomsItem:NativeMenuItem = new NativeMenuItem('ミーティングルーム')
+    menu.addItem(updatedRoomsItem)
+    updatedRoomsItem.submenu = new NativeMenu()
+    updatedRoomsItem.addEventListener(Event.DISPLAYING, function (event:Event):void {
+      var rooms:Array = FMR.loadUpdatedRooms()
+      var submenu:NativeMenu = event.currentTarget.submenu
+
+      // 確認履歴を更新
+      submenu.removeAllItems()
+      for each (var room:Object in rooms) {
+        var roomItem:NativeMenuItem = new NativeMenuItem(room.name)
+        submenu.addItem(roomItem)
+        roomItem.data = room.url
+        roomItem.addEventListener(Event.SELECT, function (event:Event):void {
+          navigateToURL(new URLRequest(event.currentTarget.data))
+        })
+      }
+
+      if (rooms.length === 0) {
+        submenu.addItem(new NativeMenuItem('なし'))
+      }
+    })
+
+    menu.addItem(new NativeMenuItem(null, true))
+
+    var stopCheckingItem:NativeMenuItem = new NativeMenuItem('確認を中止')
+    menu.addItem(stopCheckingItem)
+    stopCheckingItem.addEventListener(Event.SELECT, function (event:Event):void {
+      if (stopCheckingItem.checked) {
+        FMR.updateTimer.start()
+        stopCheckingItem.checked = false
+      } else {
+        FMR.updateTimer.stop()
+        stopCheckingItem.checked = true
+      }
+    })
+    var checkUpdateItem:NativeMenuItem = new NativeMenuItem('いますぐ確認')
+    menu.addItem(checkUpdateItem)
+    checkUpdateItem.addEventListener(Event.SELECT, function (event:Event):void {
+      checkUpdate(null)
+    })
+
+    menu.addItem(new NativeMenuItem(null, true))
+
+    var confItem:NativeMenuItem = new NativeMenuItem('設定')
+    menu.addItem(confItem)
+    confItem.addEventListener(Event.SELECT, function (event:Event):void {
+      openConfigWindow()
+    })
+    var updateItem:NativeMenuItem = new NativeMenuItem('アップデート確認')
+    menu.addItem(updateItem)
+    updateItem.addEventListener(Event.SELECT, function (event:Event):void {
+      FMR.appUpdater.checkNow()
+    })
+
+    menu.addItem(new NativeMenuItem(null, true))
+
+    var versionItem:NativeMenuItem = new NativeMenuItem('バージョン情報')
+    menu.addItem(versionItem)
+    versionItem.addEventListener(Event.SELECT, function (event:Event):void {
+      var versionWindow:VersionWindow = new VersionWindow()
+      versionWindow.addEventListener(FlexEvent.CREATION_COMPLETE, function (event:FlexEvent):void {
+        with (VersionWindow(event.currentTarget)) {
+          title = 'バージョン情報'
+          message.htmlText = '<a href="http://saikyoline.jp/air/fmradar/"><b>' + FMR.appName + '</b></a><br>'
+                           + 'Version ' + FMR.appVersion + '<br>'
+                           + '<br>'
+                           + 'Copyright (C) 2009 yoshuki'
+        }
+      })
+      versionWindow.open()
+    })
+    var exitItem:NativeMenuItem = new NativeMenuItem('終了')
+    menu.addItem(exitItem)
+    exitItem.addEventListener(Event.SELECT, function (event:Event):void {
+      NativeApplication.nativeApplication.exit()
+    })
+  } else {
+    trace('Failed to create icon.')
+    // 操作不能回避のため、アイコンが登録できなければ終了
+    NativeApplication.nativeApplication.exit()
+  }
+
+  /*
+   * データベースをオープン
+   */
+  var db:File = File.applicationStorageDirectory.resolvePath('fmradar.db')
+  var conn:SQLConnection = new SQLConnection(); 
+  FMR.sqlConnection = conn
+
+  try {
+    conn.open(db)
+
+    try {
+      var stmt:SQLStatement = new SQLStatement()
+      stmt.sqlConnection = conn
+      stmt.text = 'SELECT version FROM schema_info'
+      stmt.execute()
+
+      // スキーマが古ければ更新
+      var rows:Array = stmt.getResult().data
+      FMR.initializeDb(rows[0]['version'])
+    } catch (error:SQLError) {
+      // DBを初期化
+      FMR.initializeDb()
+    }
+  } catch (error:SQLError) {
+    trace('error.message:', error.message)
+    trace('error.details:', error.details)
+    // データベースが使用できなければ終了
+    NativeApplication.nativeApplication.exit()
+  }
+
+  /*
+   * オンラインモニタリングを開始
+   */
+  var monitor:URLMonitor = new URLMonitor(new URLRequest(FMR.FM_URL))
+  FMR.urlMonitor = monitor
+  monitor.addEventListener(StatusEvent.STATUS, function (event:StatusEvent):void {
+    trace('statusHandler:')
+    trace(event)
+  })
+  monitor.start()
+
+  /*
+   * 設定をロード
+   */
+  if (FMR.loadConfigs()) {
+    if (FMR.configs.rssUrl === null || FMR.configs.rssUrl === '') {
+      openConfigWindow()
+    }
+
+    var timer:Timer = new Timer(FMR.configs.updateInterval * 1000)
+    FMR.updateTimer = timer
+    timer.addEventListener(TimerEvent.TIMER, checkUpdate)
+    timer.start()
+  } else {
+    trace('Failed to load configs.')
+    // 設定がロード出来なければ終了する。
+    NativeApplication.nativeApplication.exit()
+  }
+
+  /*
+   * アップデート確認
+   */
+  FMR.appUpdater = new ApplicationUpdaterUI()
+  FMR.appUpdater.configurationFile = new File("app:/update-config.xml")
+  FMR.appUpdater.initialize()
+
+  FMR.displayManager = new DisplayManager()
+}
+
+private function openConfigWindow():void {
+  if (FMR.configWindow === null) {
+    FMR.configWindow = new ConfigWindow()
+    FMR.configWindow.open()
+  } else {
+    FMR.configWindow.activate()
+  }
+}
+
+private function checkUpdate(timerEvent:TimerEvent):void {
+  if (!FMR.urlMonitor.available) { return }       // オフラインならチェックしない
+  if (FMR.configs.rssUrl === '') { return }       // URLが空ならェックしない
+
+  var rssLoader:URLLoader = new URLLoader()
+  rssLoader.addEventListener(IOErrorEvent.IO_ERROR, ioErrorHandler)
+  rssLoader.addEventListener(SecurityErrorEvent.SECURITY_ERROR, securityErrorHandler)
+  rssLoader.addEventListener(Event.COMPLETE, function (event:Event):void {
+    var rssLoader:URLLoader = URLLoader(event.currentTarget)
+    var rss20:RSS20 = new RSS20()
+
+    rss20.parse(rssLoader.data)
+    for each (var item:Item20 in rss20.items) {
+      var descXML:XML = new XML(item.description)
+
+      // 各ミーティングルーム
+      for each (var updateXML:XML in descXML.li) {
+        var room:Object = {
+          url: updateXML.a.@href,
+          name: updateXML.a.strong.text().toString(),
+          lastUpdate: updateXML.span.text().toString()
+          }
+
+        // 通知していない更新のみ通知する（「いますぐ確認」を除く）
+        var r:Object = FMR.loadUpdatedRoom(room.url)
+        if (r === null || r.lastUpdate !== room.lastUpdate || timerEvent === null) {
+          FMR.displayManager.displayMessage([room.url, room.name, room.lastUpdate], FMR.configs.displayTime)
+          if (NativeApplication.supportsDockIcon) {
+            DockIcon(NativeApplication.nativeApplication.icon).bounce()
+          }
+        }
+
+        FMR.saveUpdatedRoom(room)
+      }
+    }
+
+    if (timerEvent === null && rss20.items === null) {
+      // 「いますぐ確認」で更新がなかった場合は通知
+      FMR.displayManager.displayMessage(['', FMR.appName, '更新はありません。'], FMR.configs.displayTime)
+    }
+  })
+
+  // descriptionをXHTMLとして取得
+  var glue:String
+  if (FMR.configs.rssUrl.indexOf('?') === -1) { glue = '?' } else { glue = '&' }
+  rssLoader.load(new URLRequest(FMR.configs.rssUrl + glue + 'xhtml=1'))
+}
+]]></mx:Script>
+</mx:WindowedApplication>
